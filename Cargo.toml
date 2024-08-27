@@ -1,0 +1,14 @@
+[package]
+name = "mastodon-to-blogpost"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.86"
+mdka = "1.2.10"
+megalodon = "0.13.7"
+regex = "1.10.6"
+reqwest = "0.12.7"
+tokio = "1.39.3"
