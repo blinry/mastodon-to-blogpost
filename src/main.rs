@@ -1,20 +1,36 @@
 use megalodon::entities::status::Status;
-use std::collections::HashMap;
+use std::path::PathBuf;
+use url::Url;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let m = MastodonToBlogpost::new("https://chaos.social");
-    let start_toot = "https://chaos.social/@blinry/112990469485308286";
-    let blogpost = m.convert_thread(start_toot).await?;
+    let start_toot = Url::parse(&std::env::args().nth(1).expect("Please provide a toot URL."))?;
+    let m = MastodonToBlogpost::new(&start_toot.origin().ascii_serialization());
+
+    let blogpost = m.convert_thread(&start_toot).await?;
     println!("{}", blogpost.markdown);
-    println!("{:?}", blogpost.files);
+
+    // Write to index.md.
+    std::fs::write("index.md", blogpost.markdown)?;
+
+    // Download the files, if they don't exist yet.
+    for (url, filename) in blogpost.files {
+        if !filename.exists() {
+            println!("Downloading {:?}...", filename);
+            let response = reqwest::get(url.as_str()).await?;
+            let bytes = response.bytes().await?;
+            std::fs::write(&filename, bytes)?;
+        }
+    }
+
     Ok(())
 }
 
 #[derive(Debug)]
 struct Blogpost {
     markdown: String,
-    files: Vec<String>,
+    // URL and target filename.
+    files: Vec<(Url, PathBuf)>,
 }
 
 struct MastodonToBlogpost {
@@ -33,22 +49,19 @@ impl MastodonToBlogpost {
         Self { client }
     }
 
-    async fn convert_thread(&self, toot: &str) -> anyhow::Result<Blogpost> {
-        let mut metadata = HashMap::new();
+    async fn convert_thread(&self, toot: &Url) -> anyhow::Result<Blogpost> {
+        let mut markdown = String::new();
 
-        let id = toot.split('/').last().unwrap().to_string();
+        let id = toot.path_segments().unwrap().last().unwrap().to_string();
         let status = self.client.get_status(id.clone()).await?.json();
 
         // Add the metadata we have.
-        metadata.insert(
-            "published".to_string(),
-            format!("{}", &status.created_at.format("%Y-%m-%d")),
-        );
-        metadata.insert("toot".to_string(), toot.to_string());
-        let mut markdown = "---\n".to_string();
-        for (key, value) in metadata {
-            markdown += &format!("{}: {}\n", key, value);
-        }
+        markdown += "---\n";
+        markdown += "title: \n";
+        markdown += "tags: \n";
+        markdown += "thumbnail: \n";
+        markdown += format!("published: {}\n", status.created_at.format("%Y-%m-%d")).as_str();
+        markdown += format!("toot: {}\n", toot).as_str();
         markdown += "---\n\n";
 
         let first_toot = self.convert(&status).await?;
@@ -82,6 +95,9 @@ impl MastodonToBlogpost {
         let re = regex::Regex::new(r"\n\n\n+").unwrap();
         markdown = re.replace_all(&markdown, "\n\n").to_string();
 
+        // Remove empty lines at the end of the file.
+        markdown = markdown.trim_end().to_string() + "\n";
+
         Ok(Blogpost { markdown, files })
     }
 
@@ -93,6 +109,8 @@ impl MastodonToBlogpost {
 
         let mut files = vec![];
         for attachment in &status.media_attachments {
+            let filename = filename_for(&Url::parse(&attachment.url)?);
+
             let alt_text = if let Some(ref description) = attachment.description {
                 format!(" \"{}\"", description)
             } else {
@@ -101,12 +119,22 @@ impl MastodonToBlogpost {
             markdown += &format!(
                 "\n\n![{0}]({1}{2})",
                 attachment.description.clone().unwrap_or("".to_string()),
-                attachment.url.split('/').last().unwrap(),
+                filename.to_str().unwrap(),
                 alt_text,
             );
-            files.push(attachment.url.clone());
+
+            files.push((Url::parse(&attachment.url)?, filename));
         }
 
         Ok(Blogpost { markdown, files })
     }
+}
+
+fn filename_for(url: &Url) -> PathBuf {
+    let mut filename = PathBuf::from(url.path_segments().unwrap().last().unwrap().to_string());
+    let extension = filename.extension().unwrap().to_str().unwrap();
+    if extension == "jpeg" {
+        filename.set_extension("jpg");
+    }
+    filename
 }

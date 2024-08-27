@@ -768,6 +768,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.7",
  "tokio",
+ "url",
 ]
 
 [[package]]
