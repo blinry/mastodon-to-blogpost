@@ -57,7 +57,7 @@ impl MastodonToBlogpost {
 
         // Add the metadata we have.
         markdown += "---\n";
-        markdown += "title: \n";
+        markdown += "title: TODO\n";
         markdown += "tags: \n";
         markdown += "thumbnail: \n";
         markdown += format!("published: {}\n", status.created_at.format("%Y-%m-%d")).as_str();
@@ -110,15 +110,16 @@ impl MastodonToBlogpost {
         let mut files = vec![];
         for attachment in &status.media_attachments {
             let filename = filename_for(&Url::parse(&attachment.url)?);
+            let description = attachment.description.clone().map(|d| d.replace("\n", ""));
 
-            let alt_text = if let Some(ref description) = attachment.description {
+            let alt_text = if let Some(ref description) = description {
                 format!(" \"{}\"", description)
             } else {
                 "".to_string()
             };
             markdown += &format!(
                 "\n\n![{0}]({1}{2})",
-                attachment.description.clone().unwrap_or("".to_string()),
+                description.unwrap_or("".to_string()),
                 filename.to_str().unwrap(),
                 alt_text,
             );
